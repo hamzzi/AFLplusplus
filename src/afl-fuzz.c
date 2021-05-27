@@ -1450,10 +1450,13 @@ int main(int argc, char **argv_orig, char **envp) {
 
           afl->fsrv.out_file = alloc_printf("%s/.cur_input.%s", afl->tmp_dir,
                                             afl->file_extension);
+          afl->fsrv.out_pickle_file = alloc_printf("%s/.cur_input_pickle.%s", afl->tmp_dir,
+                                            afl->file_extension);
 
         } else {
 
           afl->fsrv.out_file = alloc_printf("%s/.cur_input", afl->tmp_dir);
+          afl->fsrv.out_pickle_file = alloc_printf("%s/.cur_input_pickle", afl->tmp_dir);
 
         }
 

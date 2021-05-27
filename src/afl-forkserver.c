@@ -85,6 +85,7 @@ void afl_fsrv_init(afl_forkserver_t *fsrv) {
   fsrv->init_tmout = EXEC_TIMEOUT * FORK_WAIT_MULT;
   fsrv->mem_limit = MEM_LIMIT;
   fsrv->out_file = NULL;
+  fsrv->out_pickle_file = NULL;
   fsrv->kill_signal = SIGKILL;
 
   /* exec related stuff */
@@ -112,6 +113,7 @@ void afl_fsrv_init_dup(afl_forkserver_t *fsrv_to, afl_forkserver_t *from) {
   fsrv_to->map_size = from->map_size;
   fsrv_to->support_shmem_fuzz = from->support_shmem_fuzz;
   fsrv_to->out_file = from->out_file;
+  fsrv_to->out_pickle_file = from->out_pickle_file;
   fsrv_to->dev_urandom_fd = from->dev_urandom_fd;
   fsrv_to->out_fd = from->out_fd;  // not sure this is a good idea
   fsrv_to->no_unlink = from->no_unlink;
@@ -1060,15 +1062,22 @@ void afl_fsrv_write_to_testcase(afl_forkserver_t *fsrv, u8 *buf, size_t len) {
   } else {
 
     s32 fd = fsrv->out_fd;
+    s32 pickle_fd = 0;
 
-    if (!fsrv->use_stdin && fsrv->out_file) {
+    if (!fsrv->use_stdin && fsrv->out_pickle_file) {
 
       if (unlikely(fsrv->no_unlink)) {
 
+        pickle_fd = open(fsrv->out_pickle_file, O_WRONLY | O_CREAT | O_TRUNC,
+                  DEFAULT_PERMISSION);
         fd = open(fsrv->out_file, O_WRONLY | O_CREAT | O_TRUNC,
                   DEFAULT_PERMISSION);
 
       } else {
+
+        unlink(fsrv->out_pickle_file);                           /* Ignore errors. */
+        pickle_fd = open(fsrv->out_pickle_file, O_WRONLY | O_CREAT | O_EXCL,
+                  DEFAULT_PERMISSION);
 
         unlink(fsrv->out_file);                           /* Ignore errors. */
         fd = open(fsrv->out_file, O_WRONLY | O_CREAT | O_EXCL,
@@ -1076,6 +1085,7 @@ void afl_fsrv_write_to_testcase(afl_forkserver_t *fsrv, u8 *buf, size_t len) {
 
       }
 
+      if (pickle_fd < 0) { PFATAL("Unable to create '%s'", fsrv->out_pickle_file); }
       if (fd < 0) { PFATAL("Unable to create '%s'", fsrv->out_file); }
 
     } else if (unlikely(fd <= 0)) {
@@ -1093,7 +1103,8 @@ void afl_fsrv_write_to_testcase(afl_forkserver_t *fsrv, u8 *buf, size_t len) {
     }
 
     // fprintf(stderr, "WRITE %d %u\n", fd, len);
-    ck_write(fd, buf, len, fsrv->out_file);
+    ck_write(fd, buf, 0, fsrv->out_file);
+    ck_write(pickle_fd, buf, len, fsrv->out_pickle_file);
 
     if (fsrv->use_stdin) {
 
@@ -1103,6 +1114,7 @@ void afl_fsrv_write_to_testcase(afl_forkserver_t *fsrv, u8 *buf, size_t len) {
     } else {
 
       close(fd);
+      close(pickle_fd);
 
     }
 
