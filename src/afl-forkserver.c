@@ -1118,6 +1118,28 @@ void afl_fsrv_write_to_testcase(afl_forkserver_t *fsrv, u8 *buf, size_t len) {
 
     }
 
+    PyObject *pName, *pModule, *pFunc;
+    PyObject *pArgs, *pValue;
+
+
+    Py_Initialize();
+    pName = PyUnicode_DecodeFSDefault("src.afl_adapter.target_runner");
+    pModule = PyImport_Import(pName);
+    pFunc = PyObject_GetAttrString(pModule, "run");
+    if (pFunc && PyCallable_Check(pFunc)) {
+      pArgs = PyTuple_New(1);
+      // PyTuple_SetItem(pArgs, 0, PyBytes_FromString("/home/shelling/chromium/src/out/87.0.4280.141_all/chrome"));
+
+      PyTuple_SetItem(pArgs, 0, PyBytes_FromString(fsrv->target_path));
+      pValue = PyObject_CallObject(pFunc, pArgs);
+
+      
+    }
+    // Py_DECREF(pValue);
+    // Py_XDECREF(pFunc);
+    // Py_DECREF(pModule);
+    // Py_Finalize();
+
   }
 
 }
@@ -1136,10 +1158,7 @@ fsrv_run_result_t afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
   s32 res;
   u32 exec_ms;
   u32 write_value = fsrv->last_run_timed_out;
-  PyObject *pName, *pModule, *pFunc;
-  PyObject *pArgs, *pValue;
-  int py_ret = 0;
-  int py_done = 0;
+  
   
   /* After this memset, fsrv->trace_bits[] are effectively volatile, so we
      must prevent any earlier operations from venturing into that
@@ -1158,42 +1177,6 @@ fsrv_run_result_t afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
     RPFATAL(res, "Unable to request new process from fork server (OOM?)");
 
   }
-
-  fsrv->last_run_timed_out = 0;
-
-  Py_Initialize();
-  pName = PyUnicode_DecodeFSDefault("src.afl_adapter.target_runner");
-  pModule = PyImport_Import(pName);
-  pFunc = PyObject_GetAttrString(pModule, "run");
-  if (pFunc && PyCallable_Check(pFunc)) {
-    pArgs = PyTuple_New(1);
-    // PyTuple_SetItem(pArgs, 0, PyBytes_FromString("/home/shelling/chromium/src/out/87.0.4280.141_all/chrome"));
-
-    PyTuple_SetItem(pArgs, 0, PyBytes_FromString(fsrv->target_path));
-    pValue = PyObject_CallObject(pFunc, pArgs);
-    py_ret = PyLong_AsLong(pValue);
-    py_done = 1;
-
-    if (py_ret == 0){
-      // normal
-    }
-    else if (py_ret == 1){
-      // crash
-    }
-    else{
-      // exception
-
-      if (py_ret == -1){
-        // timeout
-        
-      }
-
-    }
-  }
-  // Py_DECREF(pValue);
-  // Py_XDECREF(pFunc);
-  // Py_DECREF(pModule);
-  // Py_Finalize();
 
   if ((res = read(fsrv->fsrv_st_fd, &fsrv->child_pid, 4)) != 4) {
 
@@ -1216,15 +1199,7 @@ fsrv_run_result_t afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
   }
 
-  if (py_done == 1){
-    // ACTF("[DEBUG] kill child");
-    kill(fsrv->child_pid, fsrv->kill_signal);
-
-    if (py_ret == -1){
-      fsrv->last_run_timed_out = 1;
-    }
-  }
-
+  fsrv->last_run_timed_out = 0;
 
   exec_ms = read_s32_timed(fsrv->fsrv_st_fd, &fsrv->child_status, timeout,
                            stop_soon_p);
@@ -1303,7 +1278,7 @@ fsrv_run_result_t afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
   if (unlikely(
           /* A normal crash/abort */
-          (py_ret == 1) ||
+          (WIFSIGNALED(fsrv->child_status)) ||
           /* special handling for msan */
           (fsrv->uses_asan && WEXITSTATUS(fsrv->child_status) == MSAN_ERROR) ||
           /* the custom crash_exitcode was returned by the target */
